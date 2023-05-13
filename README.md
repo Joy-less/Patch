@@ -1,4 +1,4 @@
-![Patch logo](assets/Patch%20logo.png)
+![Patch logo](Assets/Patch%20logo.png)
 
 An upcoming programming language mixing the best of C# and Ruby.
 
