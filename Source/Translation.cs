@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.CSharp.Scripting;
 namespace PatchLanguage
 {
     public class Translation {
-        public const string Version = "1.1.0";
+        public const string Version = "1.1.1";
         public const string Author = "Joyless";
 
         public readonly static Dictionary<string, string> IdentifierAliases = new() {
@@ -29,6 +29,7 @@ namespace PatchLanguage
             {"Object", "object"},
             {"AsyncTask", "System.Threading.Tasks.Task"},
             {"List", "System.Collections.Generic.List"},
+            {"Event", "PatchLanguage.Additions.Event"},
 
             {"True", "true"},
             {"False", "false"},
@@ -46,7 +47,6 @@ namespace PatchLanguage
             {"PublicView", "public_view"},
             {"Static", "static"},
             {"Sealed", "sealed"},
-            {"Custom", "T"},
             {"Await", "await"},
             {"Break", "break"},
             {"Continue", "continue"},
