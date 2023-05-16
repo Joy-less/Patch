@@ -5,30 +5,13 @@ namespace PatchLanguage
 {
     public class Program {
         public static void Main(string[] Args) {
-            /*if (Args.Length == 0) {
+            if (Args.Length == 0) {
                 Console.Write("You must right click a file containing Patch code and open it in Patch.");
                 Console.ReadKey(true);
                 Console.WriteLine();
                 throw new Exception("No code input.");
             }
-            string Code = File.ReadAllText(Args[0]);*/
-
-            string Code = @"
-event{string} OnSaySomething = new()
-
-task SayEndOfMessage(string Message)
-    PrintLine(""-End Of "" + Message.Length.ToString() + "" Character Message-"")
-end
-
-OnSaySomething.Add(SayEndOfMessage)
-
-string Message1 = ""Hello"";
-PrintLine(Message1)
-OnSaySomething.Fire(Message1)
-string Message2 = ""How are you?""
-PrintLine(Message2)
-OnSaySomething.Fire(Message2)
-";
+            string Code = File.ReadAllText(Args[0]);
 
             // Display information
             Console.WriteLine($"Patch v{Translation.Version}");
