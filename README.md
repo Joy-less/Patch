@@ -1,6 +1,6 @@
 <img src="Assets/Patch%20logo.png" width="175"/>
 
-An upcoming programming language mixing the best of C# and Ruby.
+A new programming language mixing the best of C# and Ruby.
 
 An example program in Patch:
 
