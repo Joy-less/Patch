@@ -1,4 +1,4 @@
-![Patch logo](Assets/Patch%20logo.png)
+<img src="Assets/Patch%20logo.png" width="175"/>
 
 An upcoming programming language mixing the best of C# and Ruby.
 
