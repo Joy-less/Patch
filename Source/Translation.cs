@@ -1,15 +1,11 @@
-﻿using System;
-using System.Linq;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using Microsoft.CodeAnalysis;
+﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 
 namespace PatchLanguage
 {
     public class Translation {
-        public const string Version = "1.1.2";
+        public const string Version = "1.1.1";
         public const string Author = "Joyless";
 
         public readonly static Dictionary<string, string> IdentifierAliases = new() {
@@ -117,13 +113,6 @@ namespace PatchLanguage
 
         /// <summary>Converts an identifier in PascalCase, lowerCamelCase, lower_snake_case or UPPER_SNAKE_CASE to PascalCase.</summary>
         private static string ToPascalCase(string Characters) {
-            if (Characters.Length == 0) {
-                return Characters;
-            }
-            else if (Characters.Length == 1) {
-                return Characters.ToUpper();
-            }
-
             if (char.IsLower(Characters[0])) {
                 Characters = char.ToUpper(Characters[0]) + Characters[1..];
             }
@@ -169,7 +158,7 @@ namespace PatchLanguage
             return IsValidNormalCharacterInIdentifier(Chara) || Chara == '_' || Chara == '.' || LogicalOperators.Contains(LastChara + Chara.ToString());
         }
         private static bool IsValidIdentifier(string Word) {
-            return LogicalOperators.Contains(Word) || (Word.Length >= 1 && Word.All(x => IsValidNormalCharacterInIdentifier(x) || x == '_' || x == '.' || x == '-') && (IsValidNormalCharacterInIdentifier(Word[0]) || Word[0] == '.' || Word[0] == '-') && Word[^1] != '_');
+            return LogicalOperators.Contains(Word) || (Word.All(x => IsValidNormalCharacterInIdentifier(x) || x == '_' || x == '.' || x == '-') && Word.Length >= 1 && (IsValidNormalCharacterInIdentifier(Word[0]) || Word[0] == '.' || Word[0] == '-') && Word[^1] != '_');
         }
         private static void AssertValidIdentifier(string Word) {
             if (IsValidIdentifier(Word) == false) {
@@ -689,25 +678,16 @@ namespace PatchLanguage
                     }
                 }
 
-                // Replace '[any a, b, c]' with 'new List<dynamic>() {a, b, c}'
-                // * The data type is not followed by a comma (e.g. [string a, b, c])
-                // * If the list is empty, its type defaults to dynamic
+                // Replace '[a, b, c]' with 'new List<dynamic>() {a, b, c}'
+                // * Allow an optional data type for the list (e.g. [string a, b, c])
                 for (int i = 0; i < ParsedCode.Count; i++) {
                     if (ParsedCode[i].Type == TokenType.StartList) {
-                        // Get the list data type
                         string ListDataType = "dynamic";
-                        for (int i2 = i + 1; i2 < ParsedCode.Count; i2++) {
-                            if (ParsedCode[i2].Type == TokenType.EndList) {
-                                break;
-                            }
-                            else if (ParsedCode[i2].Type == TokenType.Identifier) {
-                                ListDataType = ParsedCode[i2].Value;
-                                ParsedCode.RemoveAt(i2);
-                                break;
-                            }
+                        if (i + 2 < ParsedCode.Count && ParsedCode[i + 1].Type == TokenType.Identifier && ParsedCode[i + 2].Type != TokenType.NextListItem) {
+                            ListDataType = ParsedCode[i + 1].Value;
+                            ParsedCode.RemoveAt(i + 1);
                         }
 
-                        // Insert list creation tokens
                         int EndOfListPosition = -1;
                         for (int i2 = i + 1; i2 < ParsedCode.Count; i2++) {
                             if (ParsedCode[i2].Type == TokenType.EndList) {
@@ -1474,10 +1454,7 @@ namespace PatchLanguage
 
                 TranslatedCode += "using PatchLanguage; using static PatchLanguage.Additions; using static PatchLanguage.Extensions; ";
 
-                TokenType[] DoNotPutSemicolonAfter = new[] {TokenType.Semicolon, TokenType.Newline, TokenType.StartTask, TokenType.StartClassOrStruct, TokenType.StartIteration,
-                    TokenType.StartMatch, TokenType.StartCase, TokenType.StartTryOrCatchOrFinally, TokenType.AssignmentOperator, TokenType.ArithmeticOperator,
-                    TokenType.ConditionalOperator, TokenType.StartParameters, TokenType.NextParameter, TokenType.StartCustomType, TokenType.NextCustomType, TokenType.StartList,
-                    TokenType.NextListItem, TokenType.StartIndex, TokenType.Literal};
+                TokenType[] DoNotPutSemicolonAfter = new[] {TokenType.Semicolon, TokenType.Newline, TokenType.StartTask, TokenType.StartClassOrStruct, TokenType.StartIteration, TokenType.StartMatch, TokenType.StartCase, TokenType.StartTryOrCatchOrFinally, TokenType.AssignmentOperator, TokenType.ArithmeticOperator, TokenType.ConditionalOperator, TokenType.StartParameters, TokenType.Literal};
 
                 for (int i = 0; i < ParsedCode.Count; i++) {
                     Token Token = ParsedCode[i];
@@ -1634,8 +1611,8 @@ namespace PatchLanguage
         public static Script<object> Compile(string TranslatedCode) {
             try {
                 Script<object> CompiledScript = CSharpScript.Create(TranslatedCode, ScriptOptions.Default.WithOptimizationLevel(OptimizationLevel.Release)
-                    .WithReferences(DomainAssemblies)
-                    , typeof(RunGlobals));
+                    .WithReferences(DomainAssemblies).WithReferences(typeof(Microsoft.CSharp.RuntimeBinder.CSharpArgumentInfo).Assembly,
+                    typeof(Additions).Assembly), typeof(RunGlobals));
                 CompiledScript.Compile();
                 return CompiledScript;
             }
