@@ -1,11 +1,15 @@
-﻿using Microsoft.CodeAnalysis;
+﻿using System;
+using System.Linq;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 
 namespace PatchLanguage
 {
     public class Translation {
-        public const string Version = "1.0.0";
+        public const string Version = "1.1.2";
         public const string Author = "Joyless";
 
         public readonly static Dictionary<string, string> IdentifierAliases = new() {
@@ -29,6 +33,7 @@ namespace PatchLanguage
             {"Object", "object"},
             {"AsyncTask", "System.Threading.Tasks.Task"},
             {"List", "System.Collections.Generic.List"},
+            {"Event", "PatchLanguage.Additions.Event"},
 
             {"True", "true"},
             {"False", "false"},
@@ -46,11 +51,11 @@ namespace PatchLanguage
             {"PublicView", "public_view"},
             {"Static", "static"},
             {"Sealed", "sealed"},
-            {"Custom", "T"},
-            {"Return", "return"},
             {"Await", "await"},
             {"Break", "break"},
             {"Continue", "continue"},
+            {"Return", "return"},
+            {"Throw", "throw"},
 
             {"&&", "And"},
             {"||", "Or"},
@@ -58,12 +63,12 @@ namespace PatchLanguage
             {"!", "Not"}
         };
         private readonly static string[] LogicalOperators = new[] {"&&", "||", "&|", "??", "!"};
-        private readonly static string[] KeywordsStartingBlock = new[] {"If", "Task", "Class", "Struct", "Foreach", "While", "Match"};
+        private readonly static string[] KeywordsStartingBlock = new[] {"If", "Task", "Class", "Struct", "Foreach", "While", "Match", "Try"};
         private readonly static string[] KeywordsEndingBlock = new[] {"End", "Returns"};
         private readonly static string[] KeywordsStartingStructure = new[] {"Class", "Struct", "Task"};
         private readonly static string[] KeywordsStartingStructureExceptTask = new[] {"Class", "Struct"};
         private readonly static string[] KeywordsStartingIteration = new[] {"Foreach", "While"};
-        private readonly static string[] Modifiers = new[] {"public", "private", "public_view", "protected", "static", "sealed", "async"};
+        private readonly static string[] Modifiers = new[] {"public", "private", "public_view", "protected", "static", "sealed", "async", "override", "virtual"};
         private readonly static string[] AccessModifiers = new[] {"public", "public_view", "private", "protected"};
         private readonly static TokenType[] TokenTypesThatCouldHaveValues = new[] {TokenType.Identifier, TokenType.Char, TokenType.String, TokenType.Literal, TokenType.EndParameters};
         private readonly static TokenType[] StatementSeparatorTokenTypes = new[] {TokenType.Newline, TokenType.Semicolon};
@@ -90,6 +95,7 @@ namespace PatchLanguage
             StartIteration,
             StartMatch,
             StartCase,
+            StartTryOrCatchOrFinally,
             InheritsFrom,
             BeginningOfDestructor,
             NumberRangeSeparator,
@@ -111,6 +117,13 @@ namespace PatchLanguage
 
         /// <summary>Converts an identifier in PascalCase, lowerCamelCase, lower_snake_case or UPPER_SNAKE_CASE to PascalCase.</summary>
         private static string ToPascalCase(string Characters) {
+            if (Characters.Length == 0) {
+                return Characters;
+            }
+            else if (Characters.Length == 1) {
+                return Characters.ToUpper();
+            }
+
             if (char.IsLower(Characters[0])) {
                 Characters = char.ToUpper(Characters[0]) + Characters[1..];
             }
@@ -156,7 +169,7 @@ namespace PatchLanguage
             return IsValidNormalCharacterInIdentifier(Chara) || Chara == '_' || Chara == '.' || LogicalOperators.Contains(LastChara + Chara.ToString());
         }
         private static bool IsValidIdentifier(string Word) {
-            return LogicalOperators.Contains(Word) || (Word.All(x => IsValidNormalCharacterInIdentifier(x) || x == '_' || x == '.' || x == '-') && Word.Length >= 1 && (IsValidNormalCharacterInIdentifier(Word[0]) || Word[0] == '.' || Word[0] == '-') && Word[^1] != '_');
+            return LogicalOperators.Contains(Word) || (Word.Length >= 1 && Word.All(x => IsValidNormalCharacterInIdentifier(x) || x == '_' || x == '.' || x == '-') && (IsValidNormalCharacterInIdentifier(Word[0]) || Word[0] == '.' || Word[0] == '-') && Word[^1] != '_');
         }
         private static void AssertValidIdentifier(string Word) {
             if (IsValidIdentifier(Word) == false) {
@@ -676,16 +689,25 @@ namespace PatchLanguage
                     }
                 }
 
-                // Replace '[a, b, c]' with 'new List<dynamic>() {a, b, c}'
-                // * Allow an optional data type for the list (e.g. [string a, b, c])
+                // Replace '[any a, b, c]' with 'new List<dynamic>() {a, b, c}'
+                // * The data type is not followed by a comma (e.g. [string a, b, c])
+                // * If the list is empty, its type defaults to dynamic
                 for (int i = 0; i < ParsedCode.Count; i++) {
                     if (ParsedCode[i].Type == TokenType.StartList) {
+                        // Get the list data type
                         string ListDataType = "dynamic";
-                        if (i + 2 < ParsedCode.Count && ParsedCode[i + 1].Type == TokenType.Identifier && ParsedCode[i + 2].Type != TokenType.NextListItem) {
-                            ListDataType = ParsedCode[i + 1].Value;
-                            ParsedCode.RemoveAt(i + 1);
+                        for (int i2 = i + 1; i2 < ParsedCode.Count; i2++) {
+                            if (ParsedCode[i2].Type == TokenType.EndList) {
+                                break;
+                            }
+                            else if (ParsedCode[i2].Type == TokenType.Identifier) {
+                                ListDataType = ParsedCode[i2].Value;
+                                ParsedCode.RemoveAt(i2);
+                                break;
+                            }
                         }
 
+                        // Insert list creation tokens
                         int EndOfListPosition = -1;
                         for (int i2 = i + 1; i2 < ParsedCode.Count; i2++) {
                             if (ParsedCode[i2].Type == TokenType.EndList) {
@@ -1040,25 +1062,28 @@ namespace PatchLanguage
                 bool AreStringStacksEqual(Stack<string> A, Stack<string> B)  {
                     return A.Count == B.Count && A.Where(B.Contains).Count() == A.Count;
                 }
-                foreach (KeyValuePair<PatchStructure, List<Token>> Pair in StructuresToPatch) {
-                    string PatchStructureName = Pair.Key.StructureName;
-                    string PatchStructureType = Pair.Key.StructureType;
-                    bool PatchOver = Pair.Key.PatchOver;
-                    Stack<string> PatchClassTree = Pair.Key.ClassTree;
-                    List<Token> PatchTokens = Pair.Value;
+                List<PatchStructure> StructuresToPatchKeys = new(StructuresToPatch.Keys);
+                for (int i3 = 0; i3 < StructuresToPatch.Count; i3++) {
+                    PatchStructure StructureToPatch = StructuresToPatchKeys[i3];
+
+                    string PatchStructureName = StructureToPatch.StructureName;
+                    string PatchStructureType = StructureToPatch.StructureType;
+                    bool PatchOver = StructureToPatch.PatchOver;
+                    Stack<string> PatchClassTree = StructureToPatch.ClassTree;
+                    List<Token> PatchTokens = StructuresToPatch[StructuresToPatchKeys[i3]];
 
                     Stack<string> OriginalClassTree = new();
                     int OriginalWithinClassDepth = 0;
                     bool PatchSuccessful = false;
-                    for (int i2 = 0; i2 < ParsedCode.Count; i2++) {
-                        if (PatchOver == true && ParsedCode[i2].Type == TokenType.Identifier && ParsedCode[i2].Value == PatchStructureType
-                            && ParsedCode[i2 + 1].Type == TokenType.Identifier && ParsedCode[i2 + 1].Value == PatchStructureName && AreStringStacksEqual(OriginalClassTree, PatchClassTree)) {
+                    for (int i = 0; i < ParsedCode.Count; i++) {
+                        if (PatchOver == true && ParsedCode[i].Type == TokenType.Identifier && ParsedCode[i].Value == PatchStructureType
+                            && ParsedCode[i + 1].Type == TokenType.Identifier && ParsedCode[i + 1].Value == PatchStructureName && AreStringStacksEqual(OriginalClassTree, PatchClassTree)) {
                             // Console.WriteLine($"PATCH {PatchStructureType} {PatchStructureName}");
                             // Remove modifiers
-                            for (int i3 = i2 - 1; i3 > 0; i3--) {
-                                if (ParsedCode[i3].Type == TokenType.Identifier && Modifiers.Contains(ParsedCode[i3].Value)) {
-                                    ParsedCode.RemoveAt(i3);
-                                    i2--;
+                            for (int i2 = i - 1; i2 > 0; i2--) {
+                                if (ParsedCode[i2].Type == TokenType.Identifier && Modifiers.Contains(ParsedCode[i2].Value)) {
+                                    ParsedCode.RemoveAt(i2);
+                                    i--;
                                 }
                                 else {
                                     break;
@@ -1066,8 +1091,8 @@ namespace PatchLanguage
                             }
                             // Remove tokens up to StartClassOrStruct or StartTask
                             while (true) {
-                                TokenType CurrentTokenType = ParsedCode[i2].Type;
-                                ParsedCode.RemoveAt(i2);
+                                TokenType CurrentTokenType = ParsedCode[i].Type;
+                                ParsedCode.RemoveAt(i);
                                 if (CurrentTokenType == TokenType.StartClassOrStruct || CurrentTokenType == TokenType.StartTask) {
                                     break;
                                 }
@@ -1076,14 +1101,14 @@ namespace PatchLanguage
                             // Because, unlike class patches which add to the class, task patches overwrite the task
                             if (PatchStructureType == "Task") {
                                 while (true) {
-                                    Token CurrentToken = ParsedCode[i2];
-                                    ParsedCode.RemoveAt(i2);
+                                    Token CurrentToken = ParsedCode[i];
+                                    ParsedCode.RemoveAt(i);
                                     if (CurrentToken.Type == TokenType.Identifier) {
                                         if (CurrentToken.Value == "End") {
                                             break;
                                         }
-                                        else if (CurrentToken.Value == "Returns" && ParsedCode[i2].Type == TokenType.Identifier) {
-                                            ParsedCode.RemoveAt(i2);
+                                        else if (CurrentToken.Value == "Returns" && ParsedCode[i].Type == TokenType.Identifier) {
+                                            ParsedCode.RemoveAt(i);
                                             break;
                                         }
                                     }
@@ -1105,7 +1130,7 @@ namespace PatchLanguage
                                     }
                                 }
                                 else if (PatchDepth == 0) {
-                                    ParsedCode.Insert(i2 + InsertOffset, PatchToken);
+                                    ParsedCode.Insert(i + InsertOffset, PatchToken);
                                     InsertOffset++;
                                 }
                             }
@@ -1113,18 +1138,18 @@ namespace PatchLanguage
                             break;
                         }
                         // Change depth / exit tree node
-                        else if (ParsedCode[i2].Type == TokenType.Identifier && KeywordsStartingStructureExceptTask.Contains(ParsedCode[i2].Value) && ParsedCode[i2 + 1].Type == TokenType.Identifier) {
-                            OriginalClassTree.Push(ParsedCode[i2 + 1].Value);
+                        else if (ParsedCode[i].Type == TokenType.Identifier && KeywordsStartingStructureExceptTask.Contains(ParsedCode[i].Value) && ParsedCode[i + 1].Type == TokenType.Identifier) {
+                            OriginalClassTree.Push(ParsedCode[i + 1].Value);
                         }
-                        else if (ParsedCode[i2].Type == TokenType.Identifier && KeywordsStartingBlock.Contains(ParsedCode[i2].Value)) {
+                        else if (ParsedCode[i].Type == TokenType.Identifier && KeywordsStartingBlock.Contains(ParsedCode[i].Value)) {
                             OriginalWithinClassDepth++;
                         }
-                        else if (ParsedCode[i2].Type == TokenType.Identifier && KeywordsEndingBlock.Contains(ParsedCode[i2].Value)) {
+                        else if (ParsedCode[i].Type == TokenType.Identifier && KeywordsEndingBlock.Contains(ParsedCode[i].Value)) {
                             if (OriginalWithinClassDepth == 0) {
                                 // Insert new
                                 if (PatchOver == false && AreStringStacksEqual(OriginalClassTree, PatchClassTree)) {
                                     // Console.WriteLine($"INSERT NEW {PatchStructureType} {PatchStructureName}");
-                                    ParsedCode.InsertRange(i2, PatchTokens);
+                                    ParsedCode.InsertRange(i, PatchTokens);
                                     PatchSuccessful = true;
                                     break;
                                 }
@@ -1139,11 +1164,21 @@ namespace PatchLanguage
                         }
                     }
                     if (PatchSuccessful == false) {
-                        throw new Exception($"Could not patch {PatchStructureType} {PatchStructureName}.");
+                        // Override task in inherited class
+                        if (PatchStructureType == "Task") {
+                            PatchStructure NewStructureToPatch = new(PatchClassTree, PatchStructureName, PatchStructureType, false);
+                            PatchTokens.Insert(0, new Token(TokenType.Identifier, "override"));
+                            StructuresToPatch.Add(NewStructureToPatch, PatchTokens);
+                            StructuresToPatchKeys.Add(NewStructureToPatch);
+                        }
+                        // Class to patch not found
+                        else {
+                            throw new Exception($"Could not find {PatchStructureType} {PatchStructureName} to patch.");
+                        }
                     }
                 }
 
-                // Convert public_view to public and {get; private set;}
+                // Convert public_view to public and {get; protected set;}
                 for (int i = 0; i < ParsedCode.Count; i++) {
                     if (ParsedCode[i].Type == TokenType.Identifier && ParsedCode[i].Value == "public_view") {
                         ParsedCode[i].Value = "public";
@@ -1155,14 +1190,15 @@ namespace PatchLanguage
                 }
 
                 // Set default access modifier
-                // * Protected for members of classes and top-level statements
+                // * Protected for members of classes
                 // * Private for members of structs
+                // * No access modifier for top-level members
                 Stack<string> CurrentStructureTree = new();
                 Stack<string> CurrentStructureNamesTree = new();
                 int DepthWithinStructure = 0;
                 for (int i = 0; i < ParsedCode.Count; i++) {
                     if (ParsedCode[i].Type == TokenType.Identifier) {
-                        if (DepthWithinStructure == 0 && CurrentStructureTree.Count >= 1 && StatementSeparatorTokenTypes.Contains(ParsedCode[i - 1].Type)
+                        if (CurrentStructureTree.Count >= 1 && StatementSeparatorTokenTypes.Contains(ParsedCode[i - 1].Type)
                             && KeywordsStartingStructureExceptTask.Contains(CurrentStructureTree.Peek()) && KeywordsEndingBlock.Contains(ParsedCode[i].Value) == false) {
                             // Get start of member
                             int StartOfMember = 0;
@@ -1222,10 +1258,10 @@ namespace PatchLanguage
                                             if (CurrentTaskName == "Construct") {
                                                 ParsedCode.Insert(i2, new Token(TokenType.Identifier, "public"));
                                             }
+                                            // Add constructor/destructor to tree (as it will be overlooked otherwise)
+                                            CurrentStructureTree.Push("Task");
+                                            CurrentStructureNamesTree.Push(CurrentTaskName);
                                         }
-                                        // Add constructor/destructor to tree (as it will be overlooked otherwise)
-                                        CurrentStructureTree.Push("Task");
-                                        CurrentStructureNamesTree.Push(CurrentTaskName);
                                     }
                                 }
                                 else {
@@ -1235,6 +1271,7 @@ namespace PatchLanguage
                         }
 
                         if (KeywordsStartingStructure.Contains(ParsedCode[i].Value)) {
+                            DepthWithinStructure = 0;
                             CurrentStructureTree.Push(ParsedCode[i].Value);
                             CurrentStructureNamesTree.Push(ParsedCode[i + 1].Value);
                         }
@@ -1248,6 +1285,27 @@ namespace PatchLanguage
                             else if (CurrentStructureTree.Count >= 1) {
                                 CurrentStructureTree.Pop();
                                 CurrentStructureNamesTree.Pop();
+                            }
+                        }
+                    }
+                }
+
+                // Add a semicolon after anonymous tasks which are followed by a newline
+                int DepthWithinAnonymousTask = 0;
+                for (int i = 0; i < ParsedCode.Count; i++) {
+                    if (ParsedCode[i].Type == TokenType.Identifier) {
+                        if (ParsedCode[i].Value == "Anon") {
+                            DepthWithinAnonymousTask = 1;
+                        }
+                        else if (DepthWithinAnonymousTask >= 1) {
+                            if (KeywordsStartingBlock.Contains(ParsedCode[i].Value)) {
+                                DepthWithinAnonymousTask++;
+                            }
+                            else if (KeywordsEndingBlock.Contains(ParsedCode[i].Value)) {
+                                if (DepthWithinAnonymousTask == 1 && ParsedCode[i + 1].Type == TokenType.Newline) {
+                                    ParsedCode.Insert(i + 1, new Token(TokenType.Semicolon));
+                                }
+                                DepthWithinAnonymousTask--;
                             }
                         }
                     }
@@ -1271,6 +1329,17 @@ namespace PatchLanguage
                         // Add () to task without brackets
                         if (ParsedCode[EndOfTaskIdentifier - 1].Type != TokenType.EndParameters) {
                             ParsedCode.InsertRange(EndOfTaskIdentifier, new[] {new Token(TokenType.StartParameters), new Token(TokenType.EndParameters)});
+                            EndOfTaskIdentifier += 2;
+                        }
+
+                        // Convert anonymous tasks into C# delegates
+                        bool IsAnonymousTask = false;
+                        if (ParsedCode[i + 1].Value == "Anon") {
+                            IsAnonymousTask = true;
+                            ParsedCode.RemoveAt(i + 1);
+                            EndOfTaskIdentifier--;
+                            ParsedCode.Insert(EndOfTaskIdentifier, new Token(TokenType.Literal, "=>"));
+                            EndOfTaskIdentifier++;
                         }
 
                         // Convert void and returns to the return value and end
@@ -1294,13 +1363,20 @@ namespace PatchLanguage
                             }
                         }
 
-                        // Check for async modifier
+                        // Check for async, override and private modifier
                         bool HasAsyncModifier = false;
+                        bool HasOverrideModifier = false;
+                        bool HasAccessModifierWhichIsNotPrivate = false;
                         for (int i2 = i - 1; i2 >= 0; i2--) {
                             if (ParsedCode[i2].Type == TokenType.Identifier && Modifiers.Contains(ParsedCode[i2].Value)) {
                                 if (ParsedCode[i2].Value == "async") {
                                     HasAsyncModifier = true;
-                                    break;
+                                }
+                                else if (ParsedCode[i2].Value == "override") {
+                                    HasOverrideModifier = true;
+                                }
+                                else if (AccessModifiers.Contains(ParsedCode[i2].Value) && ParsedCode[i2].Value != "private") {
+                                    HasAccessModifierWhichIsNotPrivate = true;
                                 }
                             }
                             else {
@@ -1315,6 +1391,37 @@ namespace PatchLanguage
                                 ParsedCode[i].Value += $"<{ReturnType}>";
                             }
                         }
+
+                        // Insert virtual modifier if override and private modifiers are not present and task is not anonymous
+                        if (HasOverrideModifier == false && HasAccessModifierWhichIsNotPrivate == true && IsAnonymousTask == false) {
+                            ParsedCode.Insert(i, new Token(TokenType.Identifier, "virtual"));
+                            i++;
+                        }
+                    }
+                }
+
+                // Try Catch Finally
+                int TryDepth = 0;
+                for (int i = 0; i < ParsedCode.Count; i++) {
+                    if (ParsedCode[i].Type == TokenType.Identifier) {
+                        if (ParsedCode[i].Value == "Try") {
+                            TryDepth++;
+                            ParsedCode.Insert(i + 1, new Token(TokenType.StartTryOrCatchOrFinally));
+                        }
+                        else if (ParsedCode[i].Value == "Catch") {
+                            if (TryDepth == 0) {
+                                throw new Exception("Cannot have catch statement outside of try block.");
+                            }
+                            if (ParsedCode[i + 1].Type == TokenType.Identifier) {
+                                ParsedCode.Insert(i + 3, new Token(TokenType.StartTryOrCatchOrFinally));
+                            }
+                        }
+                        else if (ParsedCode[i].Value == "Finally") {
+                            if (TryDepth == 0) {
+                                throw new Exception("Cannot have finally statement outside of try block.");
+                            }
+                            ParsedCode.Insert(i + 1, new Token(TokenType.StartTryOrCatchOrFinally));
+                        }
                     }
                 }
 
@@ -1325,11 +1432,19 @@ namespace PatchLanguage
                             string Identifier = ParsedCode[i + 2].Value;
 
                             // Loop through subsequent commands to find the identifier followed by an assignment operator
+                            int Depth = 0;
                             for (int i2 = i + 3; i2 < ParsedCode.Count; i2++) {
                                 if (ParsedCode[i2].Type == TokenType.Identifier) {
-                                    // Out of scope
-                                    if (ParsedCode[i2].Value == "End") {
-                                        break;
+                                    // Check scope
+                                    if (KeywordsStartingBlock.Contains(ParsedCode[i2].Value)) {
+                                        Depth++;
+                                    }
+                                    else if (KeywordsEndingBlock.Contains(ParsedCode[i2].Value)) {
+                                        if (Depth == 0) {
+                                            // Out of scope
+                                            break;
+                                        }
+                                        Depth--;
                                     }
                                     // Illegal reassignment
                                     else if (ParsedCode[i2].Value == Identifier) {
@@ -1359,7 +1474,10 @@ namespace PatchLanguage
 
                 TranslatedCode += "using PatchLanguage; using static PatchLanguage.Additions; using static PatchLanguage.Extensions; ";
 
-                TokenType[] DoNotPutSemicolonAfter = new[] {TokenType.Semicolon, TokenType.Newline, TokenType.StartTask, TokenType.StartClassOrStruct, TokenType.StartIteration, TokenType.StartMatch, TokenType.StartCase, TokenType.AssignmentOperator, TokenType.ArithmeticOperator, TokenType.ConditionalOperator, TokenType.StartParameters, TokenType.Literal};
+                TokenType[] DoNotPutSemicolonAfter = new[] {TokenType.Semicolon, TokenType.Newline, TokenType.StartTask, TokenType.StartClassOrStruct, TokenType.StartIteration,
+                    TokenType.StartMatch, TokenType.StartCase, TokenType.StartTryOrCatchOrFinally, TokenType.AssignmentOperator, TokenType.ArithmeticOperator,
+                    TokenType.ConditionalOperator, TokenType.StartParameters, TokenType.NextParameter, TokenType.StartCustomType, TokenType.NextCustomType, TokenType.StartList,
+                    TokenType.NextListItem, TokenType.StartIndex, TokenType.Literal};
 
                 for (int i = 0; i < ParsedCode.Count; i++) {
                     Token Token = ParsedCode[i];
@@ -1401,7 +1519,7 @@ namespace PatchLanguage
                             TranslatedCode += " " + Token.Value + " ";
                             break;
                         case TokenType.Literal:
-                            TranslatedCode += Token.Value;
+                            TranslatedCode += " " + Token.Value + " ";
                             break;
                         case TokenType.String:
                             int NumberOfNewlines = Token.Value.Count(x => x == '\n');
@@ -1420,6 +1538,12 @@ namespace PatchLanguage
                         case TokenType.StartIteration:
                         case TokenType.StartMatch:
                             TranslatedCode += ") {";
+                            break;
+                        case TokenType.StartTryOrCatchOrFinally:
+                            if (ParsedCode[i - 1].Type != TokenType.Identifier || (ParsedCode[i - 1].Value != "Try" && ParsedCode[i - 1].Value != "Catch" && ParsedCode[i - 1].Value != "Finally")) {
+                                TranslatedCode += ")";
+                            }
+                            TranslatedCode += " {";
                             break;
                         case TokenType.InheritsFrom:
                             TranslatedCode += " : ";
@@ -1481,6 +1605,18 @@ namespace PatchLanguage
                                 case "Readonly":
                                     Identifier = "";
                                     break;
+                                case "Try":
+                                    Identifier = "try";
+                                    break;
+                                case "Catch":
+                                    Identifier = "} catch";
+                                    if (ParsedCode[i + 1].Type == TokenType.Identifier) {
+                                        Identifier += " (";
+                                    }
+                                    break;
+                                case "Finally":
+                                    Identifier = "} finally";
+                                    break;
                             }
                             TranslatedCode += Identifier + " ";
                             break;
@@ -1498,8 +1634,8 @@ namespace PatchLanguage
         public static Script<object> Compile(string TranslatedCode) {
             try {
                 Script<object> CompiledScript = CSharpScript.Create(TranslatedCode, ScriptOptions.Default.WithOptimizationLevel(OptimizationLevel.Release)
-                    .WithReferences(DomainAssemblies).WithReferences(typeof(Microsoft.CSharp.RuntimeBinder.CSharpArgumentInfo).Assembly,
-                    typeof(Additions).Assembly), typeof(RunGlobals));
+                    .WithReferences(DomainAssemblies)
+                    , typeof(RunGlobals));
                 CompiledScript.Compile();
                 return CompiledScript;
             }

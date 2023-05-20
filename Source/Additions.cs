@@ -1,4 +1,9 @@
-﻿namespace PatchLanguage
+﻿using System;
+using System.Linq;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+namespace PatchLanguage
 {
     public class RunGlobals {
         public static void Print(object Message) {
@@ -71,6 +76,128 @@
                     yield return i;
                     i += Step;
                 };
+            }
+        }
+        public class Int64Range {
+            public readonly long Start;
+            public readonly long End;
+            public readonly long Step;
+            public Int64Range(long Start, long End, long Step) {
+                this.Start = Start;
+                this.End = End;
+                this.Step = Step;
+            }
+            public Int64Range(long Start, long End) {
+                this.Start = Start;
+                this.End = End;
+                this.Step = Start <= End ? 1 : -1;
+            }
+            public IEnumerator<long> GetEnumerator() {
+                long i = Start;
+                while (Step >= 0 ? (i >= Start && i <= End) : (i <= Start && i >= End)) {
+                    yield return i;
+                    i += Step;
+                };
+            }
+        }
+        public class Float32Range {
+            public readonly float Start;
+            public readonly float End;
+            public readonly float Step;
+            public Float32Range(float Start, float End, float Step) {
+                this.Start = Start;
+                this.End = End;
+                this.Step = Step;
+            }
+            public Float32Range(float Start, float End) {
+                this.Start = Start;
+                this.End = End;
+                this.Step = Start <= End ? 1 : -1;
+            }
+            public IEnumerator<float> GetEnumerator() {
+                float i = Start;
+                while (Step >= 0 ? (i >= Start && i <= End) : (i <= Start && i >= End)) {
+                    yield return i;
+                    i += Step;
+                };
+            }
+        }
+        public class Float64Range {
+            public readonly double Start;
+            public readonly double End;
+            public readonly double Step;
+            public Float64Range(double Start, double End, double Step) {
+                this.Start = Start;
+                this.End = End;
+                this.Step = Step;
+            }
+            public Float64Range(double Start, double End) {
+                this.Start = Start;
+                this.End = End;
+                this.Step = Start <= End ? 1 : -1;
+            }
+            public IEnumerator<double> GetEnumerator() {
+                double i = Start;
+                while (Step >= 0 ? (i >= Start && i <= End) : (i <= Start && i >= End)) {
+                    yield return i;
+                    i += Step;
+                };
+            }
+        }
+        public class Event {
+            public List<Delegate> Listeners = new();
+            public void Add(Action Method) {
+                Listeners.Add(Method);
+            }
+            public void Remove(Action Method) {
+                Listeners.Remove(Method);
+            }
+            public void RemoveAll() {
+                Listeners.Clear();
+            }
+            public void Fire() {
+                foreach (Action Listener in Listeners.Cast<Action>()) {
+                    Listener();
+                }
+            }
+        }
+        public class Event<T> : Event {
+            public void Add(Action<T> Method) {
+                Listeners.Add(Method);
+            }
+            public void Remove(Action<T> Method) {
+                Listeners.Remove(Method);
+            }
+            public void Fire(T Param1) {
+                foreach (Action<T> Listener in Listeners.Cast<Action<T>>()) {
+                    Listener(Param1);
+                }
+            }
+        }
+        public class Event<T1, T2> : Event {
+            public void Add(Action<T1, T2> Method) {
+                Listeners.Add(Method);
+            }
+            public void Remove(Action<T1, T2> Method) {
+                Listeners.Remove(Method);
+            }
+            public void Fire(T1 Param1, T2 Param2) {
+                foreach (Action<T1, T2> Listener in Listeners.Cast<Action<T1, T2>>()) {
+                    Listener(Param1, Param2);
+                }
+            }
+        }
+        public class Event<T1, T2, T3> : Event {
+            public void Add(Action<T1, T2, T3> Method) {
+                Listeners.Add(Method);
+            }
+            public void Remove(Action<T1, T2, T3> Method) {
+                Listeners.Remove(Method);
+            }
+            public void Fire(T1 Param1, T2 Param2, T3 Param3) {
+                foreach (Action<T1, T2, T3> Listener in Listeners.Cast<Action<T1, T2, T3>>()) {
+                    Listener(Param1, Param2, Param3);
+                }
             }
         }
     }
