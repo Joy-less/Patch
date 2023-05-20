@@ -1,4 +1,9 @@
-﻿namespace PatchLanguage
+﻿using System;
+using System.Linq;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+namespace PatchLanguage
 {
     public class RunGlobals {
         public static void Print(object Message) {
