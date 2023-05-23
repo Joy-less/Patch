@@ -17,7 +17,6 @@ namespace PatchLanguage
             Console.WriteLine($"Patch v{Translation.Version}");
             Console.WriteLine($"by {Translation.Author}");
             Console.WriteLine();
-            Console.WriteLine("This is a demo of Patch for personal use only. Please report any bugs that you find.");
             // Display code
             Console.ForegroundColor = ConsoleColor.DarkGray;
             Console.WriteLine(Code);

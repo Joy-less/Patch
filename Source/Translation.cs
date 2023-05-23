@@ -9,7 +9,7 @@ using Microsoft.CodeAnalysis.CSharp.Scripting;
 namespace PatchLanguage
 {
     public class Translation {
-        public const string Version = "1.1.2";
+        public const string Version = "1.1.3";
         public const string Author = "Joyless";
 
         public readonly static Dictionary<string, string> IdentifierAliases = new() {
@@ -879,6 +879,54 @@ namespace PatchLanguage
                         }
                     }
                 }*/
+
+                // Replace aliases
+                Dictionary<string, string> Aliases = new();
+                for (int i = 0; i < ParsedCode.Count; i++) {
+                    if (ParsedCode[i].Type == TokenType.Identifier) {
+                        if (ParsedCode[i].Value == "Alias") {
+                            // Add alias
+                            if (i + 3 < ParsedCode.Count && ParsedCode[i + 1].Type == TokenType.Identifier && ParsedCode[i + 2].Type == TokenType.Identifier
+                                && ParsedCode[i + 3].Type == TokenType.Identifier && ParsedCode[i + 2].Value == "As") {
+
+                                string OriginalIdentifier = ParsedCode[i + 1].Value;
+                                string IdentifierToReplace = ParsedCode[i + 3].Value;
+                                Aliases.TryAdd(IdentifierToReplace, OriginalIdentifier);
+
+                                ParsedCode.RemoveRange(i, 4);
+                                i--;
+                            }
+                            // Invalid alias statement
+                            else {
+                                throw new Exception("Alias keyword must be followed by the original identifier, the word 'as' and the identifier to replace.");
+                            }
+                        }
+                        else if (ParsedCode[i].Value == "UnAlias") {
+                            // Remove alias
+                            if (ParsedCode[i + 1].Type == TokenType.Identifier) {
+                                Aliases.Remove(ParsedCode[i + 1].Value);
+
+                                ParsedCode.RemoveRange(i, 2);
+                                i--;
+                            }
+                            // Invalid unalias statement
+                            else {
+                                throw new Exception("Unalias keyword must be followed by the alias identifier to remove.");
+                            }
+                        }
+                        else if (ParsedCode[i].Value == "UnAliasAll") {
+                            // Remove all aliases
+                            Aliases.Clear();
+
+                            ParsedCode.RemoveAt(i);
+                            i--;
+                        }
+                        // Replace alias with original
+                        else if (Aliases.TryGetValue(ParsedCode[i].Value, out string? OriginalIdentifier)) {
+                            ParsedCode[i].Value = OriginalIdentifier;
+                        }
+                    }
+                }
 
                 // Add StartClassOrStruct and StartTask after class/struct and task
                 for (int i = 0; i < ParsedCode.Count; i++) {

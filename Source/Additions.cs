@@ -145,9 +145,9 @@ namespace PatchLanguage
             }
         }
         public class Event {
-            public List<Delegate> Listeners = new();
-            public void Add(Action Method) {
-                Listeners.Add(Method);
+            public Dictionary<Action, bool> Listeners = new();
+            public void Add(Action Method, bool OneUseOnly = false) {
+                Listeners.Add(Method, OneUseOnly);
             }
             public void Remove(Action Method) {
                 Listeners.Remove(Method);
@@ -156,47 +156,71 @@ namespace PatchLanguage
                 Listeners.Clear();
             }
             public void Fire() {
-                foreach (Action Listener in Listeners.Cast<Action>()) {
-                    Listener();
+                foreach (KeyValuePair<Action, bool> Listener in Listeners) {
+                    Listener.Key();
+                }
+                foreach (var Value in Listeners.Where(KeyValue => KeyValue.Value == true).ToList()) {
+                    Listeners.Remove(Value.Key);
                 }
             }
         }
-        public class Event<T> : Event {
-            public void Add(Action<T> Method) {
-                Listeners.Add(Method);
+        public class Event<T> {
+            public Dictionary<Action<T>, bool> Listeners = new();
+            public void Add(Action<T> Method, bool OneUseOnly = false) {
+                Listeners.Add(Method, OneUseOnly);
             }
             public void Remove(Action<T> Method) {
                 Listeners.Remove(Method);
             }
-            public void Fire(T Param1) {
-                foreach (Action<T> Listener in Listeners.Cast<Action<T>>()) {
-                    Listener(Param1);
+            public void RemoveAll() {
+                Listeners.Clear();
+            }
+            public void Fire(T Param) {
+                foreach (KeyValuePair<Action<T>, bool> Listener in Listeners) {
+                    Listener.Key(Param);
+                }
+                foreach (var Value in Listeners.Where(KeyValue => KeyValue.Value == true).ToList()) {
+                    Listeners.Remove(Value.Key);
                 }
             }
         }
-        public class Event<T1, T2> : Event {
-            public void Add(Action<T1, T2> Method) {
-                Listeners.Add(Method);
+        public class Event<T1, T2> {
+            public Dictionary<Action<T1, T2>, bool> Listeners = new();
+            public void Add(Action<T1, T2> Method, bool OneUseOnly = false) {
+                Listeners.Add(Method, OneUseOnly);
             }
             public void Remove(Action<T1, T2> Method) {
                 Listeners.Remove(Method);
             }
+            public void RemoveAll() {
+                Listeners.Clear();
+            }
             public void Fire(T1 Param1, T2 Param2) {
-                foreach (Action<T1, T2> Listener in Listeners.Cast<Action<T1, T2>>()) {
-                    Listener(Param1, Param2);
+                foreach (KeyValuePair<Action<T1, T2>, bool> Listener in Listeners) {
+                    Listener.Key(Param1, Param2);
+                }
+                foreach (var Value in Listeners.Where(KeyValue => KeyValue.Value == true).ToList()) {
+                    Listeners.Remove(Value.Key);
                 }
             }
         }
-        public class Event<T1, T2, T3> : Event {
-            public void Add(Action<T1, T2, T3> Method) {
-                Listeners.Add(Method);
+        public class Event<T1, T2, T3> {
+            public Dictionary<Action<T1, T2, T3>, bool> Listeners = new();
+            public void Add(Action<T1, T2, T3> Method, bool OneUseOnly = false) {
+                Listeners.Add(Method, OneUseOnly);
             }
             public void Remove(Action<T1, T2, T3> Method) {
                 Listeners.Remove(Method);
             }
+            public void RemoveAll() {
+                Listeners.Clear();
+            }
             public void Fire(T1 Param1, T2 Param2, T3 Param3) {
-                foreach (Action<T1, T2, T3> Listener in Listeners.Cast<Action<T1, T2, T3>>()) {
-                    Listener(Param1, Param2, Param3);
+                foreach (KeyValuePair<Action<T1, T2, T3>, bool> Listener in Listeners) {
+                    Listener.Key(Param1, Param2, Param3);
+                }
+                foreach (var Value in Listeners.Where(KeyValue => KeyValue.Value == true).ToList()) {
+                    Listeners.Remove(Value.Key);
                 }
             }
         }
