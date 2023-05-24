@@ -15,6 +15,9 @@ namespace PatchLanguage
         public static void PrintLine(object Message) {
             Console.WriteLine(Message);
         }
+        public static string Input() {
+            return Console.ReadLine() ?? "";
+        }
         public static Task<object> Evaluate(string Code) {
             List<Translation.Token> ParsedCode = Translation.Parse(Code);
             string TranslatedCode = Translation.Translate(ParsedCode);
@@ -23,7 +26,7 @@ namespace PatchLanguage
         }
     }
 
-    public class Additions {
+    public static class Additions {
         public static class Maths {
             public static int Pow(int Num, int Power) {
                 int Return = 1;

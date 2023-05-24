@@ -8,8 +8,8 @@ using Microsoft.CodeAnalysis.CSharp.Scripting;
 
 namespace PatchLanguage
 {
-    public class Translation {
-        public const string Version = "1.1.3";
+    public static class Translation {
+        public const string Version = "1.1.4";
         public const string Author = "Joyless";
 
         public readonly static Dictionary<string, string> IdentifierAliases = new() {
@@ -45,6 +45,7 @@ namespace PatchLanguage
             {"New", "new"},
             {"This", "this"},
             {"Out", "out"},
+            {"Ref", "ref"},
             {"Async", "async"},
             {"Public", "public"},
             {"Private", "private"},
@@ -63,7 +64,7 @@ namespace PatchLanguage
             {"!", "Not"}
         };
         private readonly static string[] LogicalOperators = new[] {"&&", "||", "&|", "??", "!"};
-        private readonly static string[] KeywordsStartingBlock = new[] {"If", "Task", "Class", "Struct", "Foreach", "While", "Match", "Try"};
+        private readonly static string[] KeywordsStartingBlock = new[] {"If", "Task", "Class", "Struct", "Foreach", "While", "Match", "Try", "Lock"};
         private readonly static string[] KeywordsEndingBlock = new[] {"End", "Returns"};
         private readonly static string[] KeywordsStartingStructure = new[] {"Class", "Struct", "Task"};
         private readonly static string[] KeywordsStartingStructureExceptTask = new[] {"Class", "Struct"};
@@ -96,6 +97,7 @@ namespace PatchLanguage
             StartMatch,
             StartCase,
             StartTryOrCatchOrFinally,
+            StartLock,
             InheritsFrom,
             BeginningOfDestructor,
             NumberRangeSeparator,
@@ -1473,13 +1475,30 @@ namespace PatchLanguage
                     }
                 }
 
-                // Ensure readonly variables are not reassigned
+                // Lock
+                for (int i = 0; i < ParsedCode.Count; i++) {
+                    if (ParsedCode[i].Type == TokenType.Identifier && ParsedCode[i].Value == "Lock") {
+                        if (i + 2 < ParsedCode.Count && ParsedCode[i + 1].Type == TokenType.Identifier) {
+                            for (int i2 = i + 2; i2 < ParsedCode.Count; i2++) {
+                                if (StatementSeparatorTokenTypes.Contains(ParsedCode[i2].Type)) {
+                                    ParsedCode.Insert(i2, new Token(TokenType.StartLock));
+                                    break;
+                                }
+                            }
+                        }
+                        else {
+                            throw new Exception("Lock statement must be followed by a valid identifier.");
+                        }
+                    }
+                }
+
+                // Ensure readonly variables are not reassigned or passed by reference
                 for (int i = 0; i < ParsedCode.Count; i++) {
                     if (ParsedCode[i].Type == TokenType.Identifier && ParsedCode[i].Value == "Readonly") {
                         if ((i + 3) < ParsedCode.Count && ParsedCode[i + 1].Type == TokenType.Identifier && ParsedCode[i + 2].Type == TokenType.Identifier && ParsedCode[i + 3].Type == TokenType.AssignmentOperator && ParsedCode[i + 3].Value == "=") {
                             string Identifier = ParsedCode[i + 2].Value;
 
-                            // Loop through subsequent commands to find the identifier followed by an assignment operator
+                            // Loop through subsequent commands to find the identifier followed by an assignment operator, or the identifier preceded by ref
                             int Depth = 0;
                             for (int i2 = i + 3; i2 < ParsedCode.Count; i2++) {
                                 if (ParsedCode[i2].Type == TokenType.Identifier) {
@@ -1498,6 +1517,9 @@ namespace PatchLanguage
                                     else if (ParsedCode[i2].Value == Identifier) {
                                         if (i2 + 1 < ParsedCode.Count && ParsedCode[i2 + 1].Type == TokenType.AssignmentOperator) {
                                             throw new Exception("Readonly variables cannot be reassigned.");
+                                        }
+                                        else if (i2 - 1 >= 0 && ParsedCode[i2 - 1].Type == TokenType.Identifier && ParsedCode[i2 - 1].Value == "ref") {
+                                            throw new Exception("Cannot pass readonly variables by ref.");
                                         }
                                     }
                                 }
@@ -1585,6 +1607,7 @@ namespace PatchLanguage
                             break;
                         case TokenType.StartIteration:
                         case TokenType.StartMatch:
+                        case TokenType.StartLock:
                             TranslatedCode += ") {";
                             break;
                         case TokenType.StartTryOrCatchOrFinally:
@@ -1665,6 +1688,9 @@ namespace PatchLanguage
                                 case "Finally":
                                     Identifier = "} finally";
                                     break;
+                                case "Lock":
+                                    Identifier = "lock (";
+                                    break;
                             }
                             TranslatedCode += Identifier + " ";
                             break;
@@ -1678,9 +1704,13 @@ namespace PatchLanguage
             }
         }
 
-        public readonly static System.Reflection.Assembly[] DomainAssemblies = AppDomain.CurrentDomain.GetAssemblies(); // All of the available assemblies (e.g. System.Numerics.BigInteger)
         public static Script<object> Compile(string TranslatedCode) {
             try {
+                // Get assemblies
+                List<System.Reflection.Assembly> DomainAssemblies = AppDomain.CurrentDomain.GetAssemblies().ToList(); // All of the available assemblies (e.g. System.Numerics.BigInteger)
+                DomainAssemblies.Add(typeof(Microsoft.CSharp.RuntimeBinder.RuntimeBinderException).Assembly); // For dynamic data types
+
+                // Compile code
                 Script<object> CompiledScript = CSharpScript.Create(TranslatedCode, ScriptOptions.Default.WithOptimizationLevel(OptimizationLevel.Release)
                     .WithReferences(DomainAssemblies)
                     , typeof(RunGlobals));
